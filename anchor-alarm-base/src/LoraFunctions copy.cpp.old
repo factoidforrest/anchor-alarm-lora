@@ -1,0 +1,233 @@
+
+#include <Wire.h>
+#include <SPI.h>                                //the lora device is SPI based so load the SPI library                                         
+#include <ArduinoJson.h>
+// #include <LoraFunctions.h>
+#include <SX126XLT.h>     
+SX126XLT LT;                                                   //create a library class instance called LT
+
+
+
+// #define NSS 10                                  //select pin on LoRa device
+// #define NRESET 9                                //reset pin on LoRa device
+// #define RFBUSY 7                                //SX126X busy pin
+// #define DIO1 3                                  //DIO1 pin on LoRa device, used for sensing RX and TX done 
+// #define SW 5                                    //SW pin on LoRa device, used to power antenna switch
+#define LORA_DEVICE DEVICE_SX1262               //we need to define the device we are using
+
+
+uint8_t TXPacketL;
+uint32_t TXPacketCount;
+
+
+struct ReceivedData {
+  int distance;
+  String direction;
+  int limit;
+
+  bool armed;
+  bool alarm;
+  int rssi;
+  int snr;
+  String error;
+};
+
+
+// #define LORA_SCK    5   // GPIO5 - SX1276 SCK
+// #define LORA_MISO   19  // GPIO19 - SX1276 MISO
+// #define LORA_MOSI   27  // GPIO27 - SX1276 MOSI
+// #define LORA_CS     18  // GPIO18 - SX1276 CS
+// #define LORA_RST    23  // GPIO23 - SX1276 RST
+// #define LORA_IRQ    26  // GPIO26 - SX1276 IRQ (interrupt request)
+// #define LORA_D1     33  // GPIO33 - SX1276 IO1 (for LMIC Arduino library)
+// #define LORA_D2     32 // GPIO32 - SX1276 IO2
+
+// int PIN_LORA_RESET = 4;  // LORA RESET
+// int PIN_LORA_NSS = 5;    // LORA SPI CS
+// int PIN_LORA_SCLK = 18;  // LORA SPI CLK
+// int PIN_LORA_MISO = 19;  // LORA SPI MISO
+// int PIN_LORA_DIO_1 = 21; // LORA DIO_1
+// int PIN_LORA_BUSY = 22;  // LORA SPI BUSY
+// int PIN_LORA_MOSI = 23;  // LORA SPI MOSI
+// int RADIO_TXEN = 26;     // LORA ANTENNA TX ENABLE
+// int RADIO_RXEN = 27;     // LORA ANTENNA RX ENABLE
+
+
+
+// boolean setup_lora() {
+//   // SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_CS);
+//   SPI.begin();
+
+
+//   if (!LT.begin(LORA_CS, LORA_RST, LORA_IRQ, LORA_DEVICE)){
+//     return false;
+//   }
+
+//   LT.setupLoRa(915000000, 0, LORA_SF6, LORA_BW_125, LORA_CR_4_5, LDRO_OFF); //configure frequency and LoRa settings
+//   uint8_t syncword = (uint8_t)152;
+//   LT.setSyncWord(syncword);
+//   // LT.setupLoRa(915000000, 0, LORA_SF11, LORA_BW_020, LORA_CR_4_5, LDRO_ON); //configure frequency and LoRa settings
+//   // uint8_t syncWord = 0x1485;
+//   // LT.setSyncWord(syncWord);
+//   return true;
+// }
+
+static const int8_t SW_LoRa = -1;
+static const uint8_t SS_LoRa = 8;
+static const uint8_t SCK_LoRa = 9;
+static const uint8_t MOSI_LoRa = 10;
+static const uint8_t MISO_LoRa = 11;
+static const uint8_t RST_LoRa_Dedupe = 12;
+static const uint8_t BUSY_LoRa_Dedupe = 13;
+static const uint8_t DIO1_LoRa = 14;
+
+boolean setup_lora() {
+  SPI.begin();
+
+  if (!LT.begin(SS_LoRa, RST_LoRa_Dedupe, BUSY_LoRa_Dedupe, DIO1_LoRa, SW_LoRa, LORA_DEVICE)){
+    return false;
+  }
+
+  // LT.setupLoRa(915000000, 0, LORA_SF11, LORA_BW_020, LORA_CR_4_5, LDRO_ON); //configure frequency and LoRa settings
+  LT.setupLoRa(915000000, 0, LORA_SF7, LORA_BW_250, LORA_CR_4_5, LDRO_OFF);
+  LT.setSyncWord(152);
+  return true;
+}
+
+
+// test setup
+// void setup() {
+//   delay(5000);
+//   Serial.begin(115200);
+//   Serial.println("hello");
+//   Serial.flush();
+//   setup_lora();
+//   Serial.println("Booted");
+//   Serial.flush();
+// }
+
+
+
+// boolean is_done_transmitting() {
+//   return LT.isTXdone();
+// }
+
+
+
+bool hasSentOnePacket = false;
+
+uint8_t transmit_lora_packet(int power, double distance, String direction, int limit, boolean armed, boolean alarm) {
+
+// dont interupt a packet currently sending, just return
+  if (hasSentOnePacket && !(LT.readIrqStatus() & IRQ_TX_DONE) ){
+    return 1;
+  }
+  LT.clearIrqStatus(IRQ_TX_DONE);
+
+  char sendBuffer[256]; 
+
+  StaticJsonDocument<256> doc;
+  doc["distance"] = distance;
+  doc["direction"] = direction;
+  doc["limit"] = limit;
+  doc["armed"] = armed;
+  doc["alarm"] = alarm;
+
+  serializeJson(doc, sendBuffer);  // Serialize the JSON object into the buffer
+
+  uint8_t* sendBufferInt = reinterpret_cast<uint8_t*>(sendBuffer);
+  TXPacketL = strlen((char*)sendBuffer) + 1;  // Get the length of the JSON string
+
+  // uint8_t buff[] = "Hello World 1234567890";      //the message to send  
+  // TXPacketL = sizeof(buff);                                    //set TXPacketL to length of array
+  // buff[TXPacketL - 1] = '*';                                   //replace null character at buffer end so its visible on receiver
+
+  LT.printModemSettings();
+  LT.printOperatingSettings();
+  LT.printASCIIPacket(sendBufferInt, TXPacketL);                        //print the buffer (the sent packet) as ASCII
+
+
+  uint8_t result = LT.transmit(sendBufferInt, TXPacketL, 50000, power, NO_WAIT);
+
+  hasSentOnePacket = true;
+
+  return result;
+  // set up to wait and watch for a 0 if you want to know if the transmit call failed
+
+}
+
+
+
+uint8_t RXBUFFER[256];
+
+// bool sentBefore = false;
+// test loop
+// void loop() {
+//   Serial.println("starting loop");
+//   Serial.print("isDoneTransmitting reads: ");
+//   Serial.println(LT.readIrqStatus() & IRQ_TX_DONE ? "true":"false");
+//   // bool success = false;
+//   // if (!sentBefore || is_done_transmitting()){
+//   bool success = transmit_lora(200, "NW", 250, true, false);
+//   //   sentBefore = true;
+//   // }
+//   Serial.println("SENT");
+//   Serial.println(String(success));
+//   delay(1000);
+// }
+
+ReceivedData parse_packet()
+{
+
+
+  StaticJsonDocument<256> doc;
+  DeserializationError error = deserializeJson(doc, RXBUFFER);
+
+  if (error) {
+    ReceivedData errorStruct;
+    errorStruct.error = error.f_str();
+    return errorStruct;
+  }
+
+
+  int rssi = LT.readPacketRSSI();
+  int snr = LT.readPacketSNR();
+
+  ReceivedData received = {
+    doc["distance"],
+    doc["direction"],
+    doc["limit"],
+    doc["armed"],
+    doc["alarm"],
+    rssi,
+    snr,
+    ""
+  };
+
+  return received;
+}
+
+
+ReceivedData receive_lora()
+{
+  unsigned int packet_size = 255;
+  int RXPacketL = LT.receive(RXBUFFER, packet_size, 120000, WAIT_RX); //wait for a packet to arrive with 2 min timeout
+
+  Serial.print("PacketL:");
+  Serial.println(RXPacketL);
+  if (RXPacketL == 0)                            //if the LT.receive() function detects an error or timeout, RXpacketL is 0
+  {
+    ReceivedData errorStruct;
+    LT.printDeviceErrors();
+    errorStruct.error = "No Signal";
+    return errorStruct;
+  }
+  else
+  {
+    return parse_packet();
+  }
+
+}
+
+
+

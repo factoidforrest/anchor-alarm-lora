@@ -1,0 +1,35 @@
+#include <TinyGPSPlus.h>
+#include <ezButton.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "esp_adc_cal.h"
+#include <pwmWrite.h>
+#include <AsyncElegantOTA.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+
+#define ROTARY_PIN_BTN 21
+ezButton button(ROTARY_PIN_BTN);
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(14, OUTPUT);
+
+  button.setDebounceTime(50);
+  Serial.println("startup");
+}
+
+void loop() {
+    button.loop();
+    Serial.print("Button val");
+    Serial.println(String(digitalRead(ROTARY_PIN_BTN)));
+  if (button.isPressed()) {
+    Serial.println("Button pressed!");
+  } else {
+      Serial.println("Button not pressed");
+  }
+  digitalWrite(14, HIGH);
+  delay(500);
+}
