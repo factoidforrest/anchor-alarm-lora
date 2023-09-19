@@ -12,7 +12,7 @@ modules
 * three small switches SS-12F15
 * 3d printed enclosures
 * batteries (18650s work well)
-* M2 screws (10mm for lids and 5mm switches, or you could go ham with hot glue)
+* M2 screws and nuts (10mm for lids and 5mm switches, or you could go ham with hot glue)
 
 Total cost around $60
 
